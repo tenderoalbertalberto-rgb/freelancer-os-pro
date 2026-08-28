@@ -1,0 +1,285 @@
+// ========================================================================
+// Freelancer OS Pro - Schema de Base de Datos
+// Repo: github.com/tenderoalbertalberto-rgb/freelancer-os-pro
+// ========================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ========================================================================
+// MODELO: User (Usuario/Freelancer)
+// ========================================================================
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?   // Hash de bcrypt (opcional si usa OAuth)
+  role          Role      @default(FREELANCER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relaciones
+  accounts      Account[]
+  sessions      Session[]
+  clients       Client[]
+  projects      Project[]
+  invoices      Invoice[]
+  contracts     Contract[]
+
+  @@map("users")
+}
+
+enum Role {
+  ADMIN
+  FREELANCER
+  CLIENT
+}
+
+// ========================================================================
+// MODELO: Account (NextAuth - OAuth)
+// ========================================================================
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+// ========================================================================
+// MODELO: Session (NextAuth)
+// ========================================================================
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// ========================================================================
+// MODELO: VerificationToken (NextAuth)
+// ========================================================================
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ========================================================================
+// MODELO: Client (Cliente del Freelancer)
+// ========================================================================
+model Client {
+  id          String   @id @default(cuid())
+  name        String
+  email       String
+  phone       String?
+  company     String?
+  address     String?
+  city        String?
+  country     String?
+  taxId       String?  // NIF/CUIT/RUT según país
+  notes       String?  @db.Text
+  status      ClientStatus @default(ACTIVE)
+  userId      String   // Freelancer dueño del cliente
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relaciones
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projects    Project[]
+  invoices    Invoice[]
+  contracts   Contract[]
+
+  @@map("clients")
+}
+
+enum ClientStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+// ========================================================================
+// MODELO: Project (Proyecto)
+// ========================================================================
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  description String?       @db.Text
+  status      ProjectStatus @default(PLANNING)
+  startDate   DateTime?
+  endDate     DateTime?
+  budget      Float?        // Presupuesto total
+  currency    String        @default("USD")
+  userId      String        // Freelancer dueño
+  clientId    String        // Cliente asociado
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relaciones
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client      Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  invoices    Invoice[]
+  contracts   Contract[]
+  tasks       Task[]
+
+  @@map("projects")
+}
+
+enum ProjectStatus {
+  PLANNING
+  IN_PROGRESS
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+// ========================================================================
+// MODELO: Task (Tarea dentro de un Proyecto)
+// ========================================================================
+model Task {
+  id          String      @id @default(cuid())
+  title       String
+  description String?     @db.Text
+  status      TaskStatus  @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  dueDate     DateTime?
+  projectId   String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relaciones
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("tasks")
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// ========================================================================
+// MODELO: Invoice (Factura)
+// ========================================================================
+model Invoice {
+  id            String        @id @default(cuid())
+  number        String        @unique  // Ej: INV-2026-001
+  issueDate     DateTime      @default(now())
+  dueDate       DateTime
+  status        InvoiceStatus @default(DRAFT)
+  subtotal      Float         @default(0)
+  taxRate       Float         @default(0)  // Porcentaje
+  taxAmount     Float         @default(0)
+  total         Float         @default(0)
+  currency      String        @default("USD")
+  notes         String?       @db.Text
+  userId        String        // Freelancer que emite
+  clientId      String        // Cliente que paga
+  projectId     String?       // Proyecto asociado (opcional)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relaciones
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client        Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  project       Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  items         InvoiceItem[]
+
+  @@map("invoices")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+// ========================================================================
+// MODELO: InvoiceItem (Líneas de factura)
+// ========================================================================
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  description String
+  quantity    Float   @default(1)
+  unitPrice   Float
+  total       Float
+  invoiceId   String
+
+  // Relaciones
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_items")
+}
+
+// ========================================================================
+// MODELO: Contract (Contrato)
+// ========================================================================
+model Contract {
+  id          String        @id @default(cuid())
+  title       String
+  content     String        @db.Text  // Contenido del contrato (HTML o Markdown)
+  status      ContractStatus @default(DRAFT)
+  startDate   DateTime?
+  endDate     DateTime?
+  value       Float?        // Valor del contrato
+  currency    String        @default("USD")
+  signedAt    DateTime?
+  userId      String        // Freelancer
+  clientId    String        // Cliente
+  projectId   String?       // Proyecto asociado
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relaciones
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client      Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  project     Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@map("contracts")
+}
+
+enum ContractStatus {
+  DRAFT
+  SENT
+  SIGNED
+  EXPIRED
+  CANCELLED
+}
